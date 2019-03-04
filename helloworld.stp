@@ -1,0 +1,5 @@
+probe begin
+{
+	printf("hello world.\nThis is Ashikee\n")
+	exit()
+}

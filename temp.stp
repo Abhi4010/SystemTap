@@ -1,0 +1,6 @@
+probe begin
+{
+	printf("Thread: %s\n",ctime(gettimeofday_s()))
+	printf("Current prob: %s \n",pp())
+	exit()
+}

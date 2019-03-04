@@ -1,0 +1,35 @@
+global reads, writes, total_io
+
+probe vfs.read.return {
+  if (returnval() > 0) {
+    reads[pid(),execname()] += returnval()
+    total_io[pid(),execname()] += returnval()
+  }
+}
+
+probe vfs.write.return {
+  if (returnval() > 0) {
+    writes[pid(),execname()] += returnval()
+    total_io[pid(),execname()] += returnval()
+  }
+}
+
+function humanreadable(bytes) {
+  if (bytes > 1024*1024*1024) {
+    return sprintf("%d GiB", bytes/1024/1024/1024)
+  } else if (bytes > 1024*1024) {
+    return sprintf("%d MiB", bytes/1024/1024)
+  } else if (bytes > 1024) {
+    return sprintf("%d KiB", bytes/1024)
+  } else {
+    return sprintf("%d   B", bytes)
+  }
+}
+
+probe timer.s(1) {
+  foreach([p,e] in total_io- limit 10)
+    printf("%8d %15s r: %12s w: %12s\n",
+           p, e, humanreadable(reads[p,e]),
+           humanreadable(writes[p,e]))
+  printf("\n")
+}

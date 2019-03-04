@@ -1,0 +1,9 @@
+
+# facing issues with tapset
+probe vfs.{write,read}
+{
+  if (dev == MKDEV($1,$2)
+      && ino == $3)
+    printf ("%s(%d) %s 0x%x/%u\n",
+      execname(), pid(), ppfunc(), dev, ino)
+}
