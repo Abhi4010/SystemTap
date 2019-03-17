@@ -1,0 +1,133 @@
+#! /usr/bin/env stap
+
+
+
+global start
+global time_io
+
+
+# Get time spent so far
+function timestamp:long() { return gettimeofday_us() - start }
+
+# print process id, process name
+function proc:string() { return sprintf("ProcessID: %d   ExecName: (%s)", pid(), execname()) }
+
+
+probe begin {
+ start = gettimeofday_us() 
+
+ }
+
+probe timer.s(30)
+{
+  exit()
+}
+
+
+global possible_filename, filehandles, fileread, filewrite, show_all_steps = 0
+
+probe syscall.open, syscall.openat {
+  possible_filename[tid()] = filename
+  if(show_all_steps == 1)
+      printf("\n\n\nTimeNow: %d syscall.open called for filename= %s \n",timestamp(),filename)
+
+}
+
+probe syscall.open.return, syscall.openat.return {
+
+  #Clear file entry
+  filename = possible_filename[tid()]
+  delete  possible_filename[tid()]
+  if (returnval() > 0) {
+    filehandles[pid(), returnval()] = filename
+    if(show_all_steps == 1)
+      printf("TimeNow:: %d syscall.open.return called. filehandle entry added for (pid,filename) (%d,%s)\n",timestamp(),pid(),filename)
+  } else {
+    printf("  %s file access Failed %s fail\n", proc(), filename)
+  }
+}
+
+global read_fds, write_fds
+probe syscall.read { read_fds[tid()] = fd }
+
+probe syscall.read.return {
+  p = pid()
+  fd = read_fds[tid()]
+  delete read_fds[tid()]
+  bytes =  returnval()
+  time = gettimeofday_us() - @entry(gettimeofday_us())
+  if (bytes > 0)
+    fileread[p, fd] <<< bytes
+  time_io[p, fd] <<< time
+}
+
+probe syscall.write { write_fds[tid()] = fd }
+
+probe syscall.write.return {
+  p = pid()
+  // Get fd even if non-dwarf syscall return probe.
+  fd = write_fds[tid()]
+  delete write_fds[tid()]
+  bytes =  returnval()
+  time = gettimeofday_us() - @entry(gettimeofday_us())
+  if (bytes > 0)
+    filewrite[p, fd] <<< bytes
+  time_io[p, fd] <<< time
+}
+
+ 
+global filename_to_read_io_count, filename_to_write_io_count
+global filename_to_read_byte_count,filename_to_write_byte_count
+
+
+probe end{
+
+  printf("\n\n\n..............................Read Summery............................\n\n\n")
+  foreach ([filename] in filename_to_read_byte_count){
+    printf("FileName: %s  TotalByteCount: %d   TotalIOTime: %d IOTimePerKB: %d\n\n",filename, filename_to_read_byte_count[filename], filename_to_read_io_count[filename], (filename_to_read_io_count[filename]* 1024)/filename_to_read_byte_count[filename])
+  }
+
+  printf("\n\n\n..............................Write Summery............................\n\n\n")
+
+  foreach ([filename] in filename_to_write_byte_count)
+    printf("FileName: %s  TotalByteCount: %d TotalIOTime: %d IOTimePerKB: %d\n\n", filename, filename_to_write_byte_count[filename], filename_to_write_io_count[filename], (filename_to_write_io_count[filename]* 1024/filename_to_write_byte_count[filename]))
+
+ }
+
+probe syscall.close {
+  if ([pid(), fd] in filehandles) {
+    printf("TimeElapsed: %d %s  FileName: %s  read: %d bytes  write: %d bytes ",
+           timestamp(), proc(), filehandles[pid(), fd],
+           @sum(fileread[pid(), fd]), @sum(filewrite[pid(), fd]))
+                temp =  @sum(fileread[pid(), fd])
+
+
+                if(temp){
+                filename_to_read_byte_count[filehandles[pid(), fd]] += temp
+                if (@count(time_io[pid(), fd])){
+                    temp =  @sum(time_io[pid(), fd])
+                      filename_to_read_io_count[filehandles[pid(), fd]] += temp
+                   }
+                
+                }
+
+                temp =  @sum(filewrite[pid(), fd])
+                if(temp){
+                filename_to_write_byte_count[filehandles[pid(), fd]] += temp
+                if (@count(time_io[pid(), fd])){
+                    temp =  @sum(time_io[pid(), fd])
+                      filename_to_write_io_count[filehandles[pid(), fd]] += temp
+                   }
+                }
+
+        
+            
+    if (@count(time_io[pid(), fd]))
+      printf("iotime: %d", @sum(time_io[pid(), fd]))
+    printf("\n\n")          
+   }
+  delete fileread[pid(), fd]
+  delete filewrite[pid(), fd]
+  delete filehandles[pid(), fd]
+  delete time_io[pid(),fd]
+}
