@@ -1,5 +1,5 @@
 #! /usr/bin/env stap
-
+#include <sys/stat.h>
 
 
 global start
@@ -131,3 +131,10 @@ probe syscall.close {
   delete filehandles[pid(), fd]
   delete time_io[pid(),fd]
 }
+probe vfs.{write,read}
+{
+  
+    printf ("inode: %s(%d) %s 0x%x/%u\n",
+      execname(), pid(), ppfunc(), dev, ino)
+}
+
